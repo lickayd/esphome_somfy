@@ -22,13 +22,21 @@ from . import (
 CODEOWNERS = ["@LeonardPitzu"]
 DEPENDENCIES = ["esp32"]
 
-SomfyCover = somfy_ns.class_("SomfyCover", cover.Cover, cg.Component)
-SomfyIohcCover = somfy_ns.class_("SomfyIohcCover", cover.Cover, cg.Component)
+SomfyTimeBasedCover = somfy_ns.class_(
+    "SomfyTimeBasedCover", cover.Cover, cg.Component
+)
+SomfyCover = somfy_ns.class_(
+    "SomfyCover", SomfyTimeBasedCover, cover.Cover, cg.Component
+)
+SomfyIohcCover = somfy_ns.class_(
+    "SomfyIohcCover", SomfyTimeBasedCover, cover.Cover, cg.Component
+)
 # IohcMode is a C++ `enum class`, so codegen must scope it (IohcMode::MODE_1W).
 IohcMode = somfy_ns.enum("IohcMode", is_class=True)
 
 # Shared config keys
 CONF_SOMFY_ID = "somfy_id"
+CONF_INVERT_DIRECTION = "invert_direction"
 CONF_REMOTE_CODE = "remote_code"
 CONF_SOMFY_STORAGE_KEY = "storage_key"
 CONF_SOMFY_STORAGE_NAMESPACE = "storage_namespace"
@@ -169,6 +177,9 @@ COMMON_COVER_FIELDS = {
     cv.Optional(CONF_INITIAL_ROLLING_CODE, default=1): cv.hex_int_range(
         min=1, max=0xFFFF
     ),
+    # Swap which physical command HA's open and close send. open_duration,
+    # close_duration and my_position stay in HA's terms.
+    cv.Optional(CONF_INVERT_DIRECTION, default=False): cv.boolean,
 }
 
 RTS_COVER_SCHEMA = (
@@ -298,6 +309,7 @@ async def _to_code_rts(config):
 
     cg.add(var.set_open_duration(config[CONF_OPEN_DURATION]))
     cg.add(var.set_close_duration(config[CONF_CLOSE_DURATION]))
+    cg.add(var.set_invert_direction(config[CONF_INVERT_DIRECTION]))
     cg.add(var.set_remote_code(config[CONF_REMOTE_CODE]))
     cg.add(var.set_storage_key(config[CONF_SOMFY_STORAGE_KEY]))
     cg.add(var.set_storage_namespace(config[CONF_SOMFY_STORAGE_NAMESPACE]))
@@ -326,6 +338,7 @@ async def _to_code_iohc(config):
 
     cg.add(var.set_open_duration(config[CONF_OPEN_DURATION]))
     cg.add(var.set_close_duration(config[CONF_CLOSE_DURATION]))
+    cg.add(var.set_invert_direction(config[CONF_INVERT_DIRECTION]))
     cg.add(var.set_remote_code(config[CONF_REMOTE_CODE]))
     cg.add(var.set_storage_key(config[CONF_SOMFY_STORAGE_KEY]))
     cg.add(var.set_storage_namespace(config[CONF_SOMFY_STORAGE_NAMESPACE]))

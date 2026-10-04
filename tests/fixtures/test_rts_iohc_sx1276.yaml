@@ -103,7 +103,9 @@ text_sensor:
 cover:
   - platform: somfy
     type: rts
+    id: rts_cover
     name: "Test RTS Cover"
+    invert_direction: true
     open_duration: 30s
     close_duration: 31s
     storage_key: TestRts
@@ -115,7 +117,9 @@ cover:
       - 0xABCDEF
   - platform: somfy
     type: iohc
+    id: iohc_cover
     name: "Test IOHC Cover"
+    invert_direction: true
     open_duration: 29s
     close_duration: 29s
     storage_key: TestIohc
@@ -125,3 +129,11 @@ cover:
     detected_remote: detected_iohc
     allowed_remotes:
       - 0x654321
+
+switch:
+  - platform: somfy
+    cover_id: rts_cover
+    name: "RTS Invert Direction"
+  - platform: somfy
+    cover_id: iohc_cover
+    name: "IOHC Invert Direction"

@@ -91,8 +91,9 @@ def test_manager_exposes_backward_compatible_separate_venetian_service():
 
 
 def test_lift_and_my_commands_publish_verified_venetian_tilt_states():
-    assert "this->set_lift_tilt_(true)" in COVER_CPP
-    assert "this->set_lift_tilt_(false)" in COVER_CPP
+    # Open and close publish the tilt of the physical command they sent, which
+    # with invert_direction is not HA's direction.
+    assert COVER_CPP.count("this->set_lift_tilt_(main_param == iohc_cmd::MP_OPEN)") == 2
     assert "this->my_tilt_pending_ = this->venetian_" in COVER_CPP
     assert "this->set_my_tilt_(false)" in COVER_CPP
     assert "this->stop_rx_sync();" in COVER_CPP

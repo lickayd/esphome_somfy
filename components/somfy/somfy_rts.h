@@ -65,6 +65,7 @@ public:
 
 protected:
   void control(const cover::CoverCall &call) override;
+  void stop_remote_animation_() override;
 
   // Hub reference (owns radio)
   SomfyRtsHub *hub_{nullptr};

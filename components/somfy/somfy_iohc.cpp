@@ -289,6 +289,9 @@ void SomfyIohcCover::dump_config() {
   if (this->has_my_position_) {
     ESP_LOGCONFIG(TAG, "  MY position estimate: %.0f%%", this->my_position_ * 100.0f);
   }
+  if (this->invert_direction_) {
+    ESP_LOGCONFIG(TAG, "  Direction: inverted");
+  }
   ESP_LOGCONFIG(TAG, "  Venetian tilt: %s", this->venetian_ ? "enabled" : "disabled");
   if (this->venetian_) {
     ESP_LOGCONFIG(TAG, "  Tilt calibration: %u steps, clockwise %s value",
@@ -313,10 +316,13 @@ void SomfyIohcCover::open() {
   this->cancel_1w_tilt_sequence();
   ESP_LOGD(TAG, "OPEN node=0x%06" PRIX32 " mode=%s", this->node_id_,
            this->mode_ == IohcMode::MODE_2W ? "2W" : "1W");
+  // With inverted direction Home Assistant's open is the motor's close. The
+  // lift tilt follows the physical command, not HA's direction.
+  const uint16_t main_param = this->invert_direction_ ? iohc_cmd::MP_CLOSE : iohc_cmd::MP_OPEN;
   if (this->mode_ == IohcMode::MODE_2W) {
-    this->send_2w_command(iohc_cmd::MP_OPEN);
-  } else if (this->send_1w_command(iohc_cmd::MP_OPEN)) {
-    this->set_lift_tilt_(true);
+    this->send_2w_command(main_param);
+  } else if (this->send_1w_command(main_param)) {
+    this->set_lift_tilt_(main_param == iohc_cmd::MP_OPEN);
   }
 }
 
@@ -327,11 +333,28 @@ void SomfyIohcCover::close() {
   this->cancel_1w_tilt_sequence();
   ESP_LOGD(TAG, "CLOSE node=0x%06" PRIX32 " mode=%s", this->node_id_,
            this->mode_ == IohcMode::MODE_2W ? "2W" : "1W");
+  const uint16_t main_param = this->invert_direction_ ? iohc_cmd::MP_OPEN : iohc_cmd::MP_CLOSE;
   if (this->mode_ == IohcMode::MODE_2W) {
-    this->send_2w_command(iohc_cmd::MP_CLOSE);
-  } else if (this->send_1w_command(iohc_cmd::MP_CLOSE)) {
-    this->set_lift_tilt_(false);
+    this->send_2w_command(main_param);
+  } else if (this->send_1w_command(main_param)) {
+    this->set_lift_tilt_(main_param == iohc_cmd::MP_OPEN);
   }
+}
+
+void SomfyIohcCover::stop_remote_animation_() {
+#ifdef USE_SOMFY_IOHC_RX
+  if (this->rx_sync_.active()) {
+    this->rx_sync_.stop();
+    this->my_tilt_pending_ = false;
+    this->current_operation = cover::COVER_OPERATION_IDLE;
+  }
+#endif
+}
+
+void SomfyIohcCover::on_invert_direction_changed_() {
+  // my_position is an HA position of a fixed physical place, so it mirrors
+  // with the direction.
+  this->my_position_ = 1.0f - this->my_position_;
 }
 
 void SomfyIohcCover::stop() {
@@ -1134,15 +1157,18 @@ void SomfyIohcCover::emit_rx_command_(uint16_t main_param, uint32_t remote,
 
 void SomfyIohcCover::handle_rx_command_(uint16_t main_param) {
   switch (main_param) {
+    // With inverted direction the remote's open is Home Assistant's close.
     case iohc_cmd::MP_OPEN:
       this->my_tilt_pending_ = false;
       this->set_lift_tilt_(true, false);
-      this->start_rx_sync(cover::COVER_OPERATION_OPENING);
+      this->start_rx_sync(this->invert_direction_ ? cover::COVER_OPERATION_CLOSING
+                                                  : cover::COVER_OPERATION_OPENING);
       break;
     case iohc_cmd::MP_CLOSE:
       this->my_tilt_pending_ = false;
       this->set_lift_tilt_(false, false);
-      this->start_rx_sync(cover::COVER_OPERATION_CLOSING);
+      this->start_rx_sync(this->invert_direction_ ? cover::COVER_OPERATION_OPENING
+                                                  : cover::COVER_OPERATION_CLOSING);
       break;
     case iohc_cmd::MP_STOP:
     case iohc_cmd::MP_MY:

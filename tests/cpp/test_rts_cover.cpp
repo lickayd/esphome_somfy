@@ -25,6 +25,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 // ---------------------------------------------------------------------------
 // Stub runtime
@@ -395,6 +396,111 @@ static void test_ha_command_cancels_remote_animation() {
   check_close(rig.cover.position, at_stop, 0.01f, "position no longer drifts to the end stop");
 }
 
+/// Which command a cover call put on the air, read back through the hub's own
+/// demodulator (the discovery sensor reports "<remote> <COMMAND> <rolling>").
+static std::string transmitted_command(Rig &rig) {
+  g_millis += 2000;  // outside the repeat-burst window of the previous frame
+  rig.hub.on_receive(remote_base::RemoteReceiveData(as_received(rig.tx.last_data.get_data())));
+  const std::string &state = rig.detected.last_state;
+  const size_t first = state.find(' ');
+  const size_t second = state.find(' ', first + 1);
+  return state.substr(first + 1, second - first - 1);
+}
+
+/// invert_direction swaps the physical commands behind HA's open and close and
+/// the meaning of the remote's Up and Down; stop is untouched.
+static void test_invert_direction_swaps_commands() {
+  printf("Invert direction: commands\n");
+
+  Rig normal;
+  normal.cover.open();
+  check(transmitted_command(normal) == "UP", "normal: HA open sends UP");
+  normal.cover.close();
+  check(transmitted_command(normal) == "DOWN", "normal: HA close sends DOWN");
+
+  Rig rig;
+  rig.cover.set_invert_direction(true);
+  rig.cover.open();
+  check(transmitted_command(rig) == "DOWN", "inverted: HA open sends DOWN");
+  rig.cover.close();
+  check(transmitted_command(rig) == "UP", "inverted: HA close sends UP");
+  rig.cover.stop();
+  check(transmitted_command(rig) == "MY", "inverted: HA stop still sends MY");
+}
+
+static void test_invert_direction_mirrors_remote() {
+  printf("Invert direction: physical remote\n");
+
+  Rig rig;
+  rig.cover.set_invert_direction(true);
+  rig.cover.position = 0.5f;
+
+  rig.receive(REMOTE_CODE, somfy::RtsCommand::Up);
+  check(rig.cover.current_operation == cover::COVER_OPERATION_CLOSING, "inverted: remote UP shows as CLOSING");
+  rig.advance(2500);
+  check_close(rig.cover.position, 0.25f, 0.05f, "inverted: position runs towards closed");
+
+  rig.receive(REMOTE_CODE, somfy::RtsCommand::My);
+  check(rig.cover.current_operation == cover::COVER_OPERATION_IDLE, "inverted: remote MY still stops");
+
+  rig.receive(REMOTE_CODE, somfy::RtsCommand::Down);
+  check(rig.cover.current_operation == cover::COVER_OPERATION_OPENING, "inverted: remote DOWN shows as OPENING");
+}
+
+/// Toggling at runtime: the motor has not moved, so the entity's position
+/// mirrors; restoring a stored choice at boot leaves the position alone.
+static void test_invert_direction_runtime_toggle() {
+  printf("Invert direction: runtime toggle\n");
+
+  Rig rig;
+  rig.cover.position = 0.8f;
+  const int publishes = rig.cover.publish_count;
+  rig.cover.apply_invert_direction(true);
+  check(rig.cover.get_invert_direction(), "the cover is now inverted");
+  check_close(rig.cover.position, 0.2f, 0.001f, "the position is mirrored");
+  check(rig.cover.publish_count > publishes, "the new position is published");
+  rig.cover.apply_invert_direction(true);
+  check_close(rig.cover.position, 0.2f, 0.001f, "applying the same setting again changes nothing");
+  rig.cover.apply_invert_direction(false);
+  check_close(rig.cover.position, 0.8f, 0.001f, "toggling back restores the position");
+
+  // While a physical-remote animation runs.
+  rig.cover.position = 0.5f;
+  rig.receive(REMOTE_CODE, somfy::RtsCommand::Up);
+  rig.advance(1000);
+  check(rig.cover.rx_active(), "remote animation is running");
+  const int sent = rig.tx.transmit_count;
+  const float before = rig.cover.position;
+  rig.cover.apply_invert_direction(true);
+  check(!rig.cover.rx_active(), "toggling ends the remote animation");
+  check(rig.cover.current_operation == cover::COVER_OPERATION_IDLE, "entity reports IDLE");
+  check(rig.tx.transmit_count == sent, "nothing is transmitted for a remote-driven movement");
+  check_close(rig.cover.position, 1.0f - before, 0.001f, "position is mirrored from where the animation stood");
+  rig.advance(3000);
+  check_close(rig.cover.position, 1.0f - before, 0.001f, "position no longer moves");
+
+  // While a movement commanded from Home Assistant runs.
+  Rig moving;
+  moving.cover.position = 0.0f;
+  cover::CoverCall call;
+  call.set_position(1.0f);
+  moving.cover.control(call);
+  moving.advance(2000);
+  check(moving.cover.current_operation == cover::COVER_OPERATION_OPENING, "HA movement is running");
+  const int sent_before = moving.tx.transmit_count;
+  moving.cover.apply_invert_direction(true);
+  check(moving.cover.current_operation == cover::COVER_OPERATION_IDLE, "toggling stops the HA movement");
+  check(moving.tx.transmit_count == sent_before + 1 && transmitted_command(moving) == "MY",
+        "a stop is sent to the motor");
+
+  // Boot-time restore.
+  Rig boot;
+  boot.cover.position = 0.8f;
+  boot.cover.restore_invert_direction(true);
+  check(boot.cover.get_invert_direction(), "a stored choice is restored");
+  check_close(boot.cover.position, 0.8f, 0.001f, "restoring does not mirror the restored position");
+}
+
 int main() {
   printf("Somfy RTS host tests\n\n");
 
@@ -413,6 +519,12 @@ int main() {
   test_foreign_remote_reported_but_ignored();
   printf("\n");
   test_traits();
+  printf("\n");
+  test_invert_direction_swaps_commands();
+  printf("\n");
+  test_invert_direction_mirrors_remote();
+  printf("\n");
+  test_invert_direction_runtime_toggle();
   printf("\n");
   test_repeat_burst_collapses_but_new_press_gets_through();
   printf("\n");

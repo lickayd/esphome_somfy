@@ -17,6 +17,35 @@ void SomfyTimeBasedCover::dump_config() {
                 "  Open Duration: %.1fs\n"
                 "  Close Duration: %.1fs",
                 this->open_duration_ / 1e3f, this->close_duration_ / 1e3f);
+  if (this->invert_direction_) {
+    ESP_LOGCONFIG(TAG, "  Direction: inverted");
+  }
+}
+
+void SomfyTimeBasedCover::restore_invert_direction(bool invert) {
+  if (invert == this->invert_direction_)
+    return;
+  this->invert_direction_ = invert;
+  this->on_invert_direction_changed_();
+}
+
+void SomfyTimeBasedCover::apply_invert_direction(bool invert) {
+  if (invert == this->invert_direction_)
+    return;
+  // Stop first, under the old mapping: a running open would otherwise turn
+  // into a close mid-travel as far as the position estimate is concerned. A
+  // remote-driven animation is only an estimate, so it ends without a command;
+  // a movement started from Home Assistant is stopped at the motor.
+  this->stop_remote_animation_();
+  if (this->current_operation != COVER_OPERATION_IDLE)
+    this->start_direction_(COVER_OPERATION_IDLE);
+  this->invert_direction_ = invert;
+  this->on_invert_direction_changed_();
+  this->position = clamp(1.0f - this->position, 0.0f, 1.0f);
+  this->target_position_ = this->position;
+  this->last_operation_ =
+      this->last_operation_ == COVER_OPERATION_OPENING ? COVER_OPERATION_CLOSING : COVER_OPERATION_OPENING;
+  this->publish_state();
 }
 
 void SomfyTimeBasedCover::setup() {

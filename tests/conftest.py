@@ -59,6 +59,7 @@ def _install_esphome_mocks():
         "esphome.components.remote_receiver": components.remote_receiver,
         "esphome.components.text_sensor": components.text_sensor,
         "esphome.components.sx127x": components.sx127x,
+        "esphome.components.switch": components.switch,
         "esphome.components.cover": components.cover,
         "esphome.components.somfy": components.somfy,
     }

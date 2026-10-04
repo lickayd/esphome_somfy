@@ -555,12 +555,45 @@ cover:
 | `initial_rolling_code` | no | Initial code used only when the NVS key is missing; defaults to `1` |
 | `remote_code` | yes | Hex address of this virtual remote |
 | `prog_button` | yes | Button entity to trigger PROG pairing |
+| `invert_direction` | no | Swap the physical commands behind open and close; see [Invert direction](#invert-direction). Default `false` |
 | `repeat_command_count` | no | Ordinary RF command repeat count; defaults to `4` (the tested distant IOHC link uses `6`) |
 | `detected_remote` | no | Text sensor showing the physical remote ID, decoded action, raw parameter, rolling sequence, and event number |
 | `allowed_remotes` | no | Physical remote IDs allowed to update the time-based position estimate |
 | `encryption_key` | no | Custom AES key hex string (iohc 1W: defaults to transfer key; iohc 2W: system key, required) |
 | `mode` | no | iohc only: `1w` (default) or `2w` |
 | `target_node` | 2W only | 3-byte hex address of target actuator |
+
+## Invert direction
+
+Home Assistant's "open" sends the remote's Up, which is right for a shutter.
+On an awning Up retracts, while Home Assistant shows an open awning as
+extended, so the entity ends up reversed. `invert_direction: true` on the
+cover swaps the two, for both RTS and iohc:
+
+- open sends Down / close, close sends Up / open; stop and My are unchanged;
+- a physical remote's Up is shown as closing, Down as opening;
+- `open_duration`, `close_duration` and `my_position` stay in Home
+  Assistant's terms: `open_duration` is how long HA's open takes.
+
+To change it without reflashing, add the switch. Its stored state wins over
+the cover's YAML value once it has been used:
+
+```yaml
+cover:
+  - platform: somfy
+    type: rts
+    id: awning
+    invert_direction: true
+    # ...
+
+switch:
+  - platform: somfy
+    cover_id: awning
+    name: "Invert Direction"
+```
+
+Toggling the switch stops a running movement and mirrors the shown position
+(30% becomes 70%): the motor has not moved, only the meaning of the scale.
 
 ## Adding shutters safely
 
