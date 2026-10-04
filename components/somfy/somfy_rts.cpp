@@ -92,6 +92,8 @@ void SomfyCover::setup() {
   this->hub_->register_rx_callback([this](const RtsDecodedFrame &frame) {
     this->on_rts_frame_(frame);
   });
+  // Our own frames must not come back as a "detected remote".
+  this->hub_->add_own_remote_code(this->remote_code_);
 
   // Wire up time-based cover triggers
   automationTriggerUp_ = std::make_unique<Automation<>>(this->get_open_trigger());
