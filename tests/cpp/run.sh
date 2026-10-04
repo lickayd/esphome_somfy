@@ -3,6 +3,7 @@
 #   1. io-homecontrol protocol golden vectors (AES oracle: CommonCrypto / OpenSSL)
 #   2. RX-sync animator, the dead-reckoning used to follow a physical remote
 #   3. RTS cover behaviour, incl. the physical-remote -> HA state sync
+#   4. io-homecontrol hub against a recording CC1101, compared with a golden trace
 #
 # No ESPHome toolchain needed; ./stubs provides the minimal ESPHome surface.
 # These cover what `esphome compile` cannot: a firmware build succeeding proves
@@ -62,6 +63,14 @@ run_suite "RTS cover" "$TMP/rts_cover" \
   ../../components/somfy/somfy_rts.cpp \
   ../../components/somfy/somfy_hub_rts.cpp \
   ../../components/somfy/somfy_time_based_cover.cpp
+
+run_suite "io-homecontrol hub (CC1101)" "$TMP/iohc_hub" \
+  -I stubs "${COMPONENT_WARNINGS[@]}" \
+  -DUSE_SOMFY_IOHC \
+  test_iohc_hub.cpp \
+  ../../components/somfy/somfy_hub_iohc.cpp \
+  ../../components/somfy/iohc_protocol.cpp \
+  $CRYPTO_LIBS
 
 if [[ "$failed" -ne 0 ]]; then
   echo "One or more C++ suites failed."
