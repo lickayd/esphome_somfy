@@ -29,15 +29,19 @@ void SomfyCover::on_rts_frame_(const RtsDecodedFrame &frame) {
   if (!this->is_allowed_remote_(frame.remote_code))
     return;
 
+  // With inverted direction the remote's Up is Home Assistant's close.
+  const auto up = this->invert_direction_ ? cover::COVER_OPERATION_CLOSING : cover::COVER_OPERATION_OPENING;
+  const auto down = this->invert_direction_ ? cover::COVER_OPERATION_OPENING : cover::COVER_OPERATION_CLOSING;
+
   switch (frame.command) {
     case RtsCommand::Up:
     case RtsCommand::MyUp:
-      this->start_rx_sync_(cover::COVER_OPERATION_OPENING);
+      this->start_rx_sync_(up);
       break;
 
     case RtsCommand::Down:
     case RtsCommand::MyDown:
-      this->start_rx_sync_(cover::COVER_OPERATION_CLOSING);
+      this->start_rx_sync_(down);
       break;
 
     case RtsCommand::My:
@@ -64,6 +68,13 @@ void SomfyCover::stop_rx_sync_() {
   this->publish_state();
 }
 
+void SomfyCover::stop_remote_animation_() {
+  if (this->rx_sync_.active()) {
+    this->rx_sync_.stop();
+    this->current_operation = cover::COVER_OPERATION_IDLE;
+  }
+}
+
 bool SomfyCover::is_allowed_remote_(uint32_t code) const {
   return this->receive_remote_codes_.empty() ||
          std::binary_search(this->receive_remote_codes_.begin(), this->receive_remote_codes_.end(), code);
@@ -81,6 +92,8 @@ void SomfyCover::setup() {
   this->hub_->register_rx_callback([this](const RtsDecodedFrame &frame) {
     this->on_rts_frame_(frame);
   });
+  // Our own frames must not come back as a "detected remote".
+  this->hub_->add_own_remote_code(this->remote_code_);
 
   // Wire up time-based cover triggers
   automationTriggerUp_ = std::make_unique<Automation<>>(this->get_open_trigger());
@@ -124,7 +137,12 @@ void SomfyCover::loop() {
   SomfyTimeBasedCover::loop();
 }
 
-void SomfyCover::dump_config() { ESP_LOGCONFIG(TAG, "Somfy RTS cover"); }
+void SomfyCover::dump_config() {
+  ESP_LOGCONFIG(TAG, "Somfy RTS cover");
+  if (this->invert_direction_) {
+    ESP_LOGCONFIG(TAG, "  Direction: inverted");
+  }
+}
 
 cover::CoverTraits SomfyCover::get_traits() {
   auto traits = SomfyTimeBasedCover::get_traits();
@@ -155,8 +173,8 @@ void SomfyCover::log_and_send_(const char *label, RtsCommand cmd) {
   this->send_command(cmd);
 }
 
-void SomfyCover::open()    { log_and_send_("OPEN", RtsCommand::Up);    }
-void SomfyCover::close()   { log_and_send_("CLOSE", RtsCommand::Down); }
+void SomfyCover::open()    { log_and_send_("OPEN", this->invert_direction_ ? RtsCommand::Down : RtsCommand::Up);  }
+void SomfyCover::close()   { log_and_send_("CLOSE", this->invert_direction_ ? RtsCommand::Up : RtsCommand::Down); }
 void SomfyCover::stop()    { log_and_send_("STOP", RtsCommand::My);    }
 void SomfyCover::program() { log_and_send_("PROG", RtsCommand::Prog);  }
 

@@ -25,6 +25,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <string>
 
 // ---------------------------------------------------------------------------
 // Stub runtime
@@ -90,6 +91,7 @@ namespace {
 
 constexpr uint32_t REMOTE_CODE = 0x123456;
 constexpr uint32_t FOREIGN_CODE = 0xABCDEF;
+constexpr uint32_t BRIDGE_CODE = 0x654321;
 constexpr uint32_t TRAVEL_MS = 10000;
 
 /// Exposes the protected surface the tests need to drive and observe.
@@ -140,7 +142,8 @@ struct Rig {
   TestCover cover;
 
   /// @param with_receiver false models a TX-only hub (RX is optional for RTS).
-  explicit Rig(bool with_receiver = true) {
+  /// @param remote_code the code this rig's cover transmits with.
+  explicit Rig(bool with_receiver = true, uint32_t remote_code = REMOTE_CODE) {
     g_millis = 1000;
     g_rolling_code = 1;
 
@@ -151,7 +154,7 @@ struct Rig {
 
     this->cover.set_hub(&this->hub);
     this->cover.set_prog_button(&this->prog);
-    this->cover.set_remote_code(REMOTE_CODE);
+    this->cover.set_remote_code(remote_code);
     this->cover.set_storage_namespace("somfy");
     this->cover.set_storage_key("test");
     this->cover.set_repeat_count(2);
@@ -209,15 +212,42 @@ static void test_tx_mandatory_rx_optional() {
 static void test_setup_registers_cover_on_hub() {
   printf("Hub -> cover wiring\n");
 
+  // The sender is a second bridge with its own remote code: a hub drops its
+  // own transmissions, so the round trip needs a foreign transmitter.
+  Rig sender(/*with_receiver=*/false, FOREIGN_CODE);
+  sender.cover.open();
+
   Rig rig;
-  rig.cover.open();
   g_millis += 1000;
+  const int before = rig.detected.publish_count;
+  rig.hub.on_receive(remote_base::RemoteReceiveData(as_received(sender.tx.last_data.get_data())));
+  check(rig.detected.publish_count > before, "a frame decoded by the hub reaches the cover registered in setup()");
+  check(rig.detected.last_state.find("ABCDEF") != std::string::npos, "the transmitted remote code survives the round trip");
+  check(rig.detected.last_state.find("UP") != std::string::npos, "the transmitted command survives the round trip");
+}
+
+/// With transmitter and receiver on one radio the hub hears itself. Its own
+/// frames must not be reported as a detected remote, nor drive the cover.
+static void test_own_transmissions_are_ignored() {
+  printf("Own transmissions\n");
+
+  Rig rig;
+  rig.cover.position = 0.5f;
+  rig.cover.open();
+  g_millis += 2000;
 
   const int before = rig.detected.publish_count;
-  rig.hub.on_receive(remote_base::RemoteReceiveData(as_received(rig.tx.last_data.get_data())));
-  check(rig.detected.publish_count > before, "a frame decoded by the hub reaches the cover registered in setup()");
-  check(rig.detected.last_state.find("123456") != std::string::npos, "the transmitted remote code survives the round trip");
-  check(rig.detected.last_state.find("UP") != std::string::npos, "the transmitted command survives the round trip");
+  const bool consumed = rig.hub.on_receive(remote_base::RemoteReceiveData(as_received(rig.tx.last_data.get_data())));
+  check(consumed, "the hub recognises its own frame as a valid RTS frame");
+  check(rig.detected.publish_count == before, "its own frame is not reported as a detected remote");
+  check(!rig.cover.rx_active(), "its own frame does not start a remote animation");
+
+  Rig other(/*with_receiver=*/false, FOREIGN_CODE);
+  other.cover.close();
+  g_millis += 2000;
+  rig.hub.on_receive(remote_base::RemoteReceiveData(as_received(other.tx.last_data.get_data())));
+  check(rig.detected.publish_count == before + 1, "a frame from another transmitter is still reported");
+  check(rig.detected.last_state.find("ABCDEF") != std::string::npos, "with that transmitter's code");
 }
 
 /// The regression guard: a frame from an allow-listed remote must drive the HA
@@ -340,12 +370,15 @@ static void test_traits() {
 static void test_repeat_burst_collapses_but_new_press_gets_through() {
   printf("RX burst suppression\n");
 
-  Rig rig;
+  // A second rig plays the allow-listed physical remote, so its encoder yields
+  // real on-air bursts. The bridge under test transmits with a code of its own:
+  // frames carrying a hub's own code are dropped as its own transmissions.
+  Rig remote(/*with_receiver=*/false, REMOTE_CODE);
+  Rig rig(/*with_receiver=*/true, BRIDGE_CODE);
   rig.cover.position = 0.0f;
 
-  // Borrow the encoder to produce a real on-air burst for an allow-listed remote.
-  rig.cover.open();
-  const auto up_burst = as_received(rig.tx.last_data.get_data());
+  remote.cover.open();
+  const auto up_burst = as_received(remote.tx.last_data.get_data());
 
   rig.hub.on_receive(remote_base::RemoteReceiveData(up_burst));
   check(rig.cover.rx_active(), "first copy of the burst starts the animation");
@@ -361,8 +394,8 @@ static void test_repeat_burst_collapses_but_new_press_gets_through() {
   check(rig.detected.publish_count == discovery_publishes, "repeats are not re-reported for discovery");
 
   // Same remote, next rolling code, well inside the old 150 ms dead time.
-  rig.cover.stop();
-  const auto my_burst = as_received(rig.tx.last_data.get_data());
+  remote.cover.stop();
+  const auto my_burst = as_received(remote.tx.last_data.get_data());
   g_millis += 20;
   rig.hub.on_receive(remote_base::RemoteReceiveData(my_burst));
 
@@ -395,12 +428,124 @@ static void test_ha_command_cancels_remote_animation() {
   check_close(rig.cover.position, at_stop, 0.01f, "position no longer drifts to the end stop");
 }
 
+/// Which command a cover call put on the air, read back through the hub's own
+/// demodulator (the discovery sensor reports "<remote> <COMMAND> <rolling>").
+static std::string transmitted_command(Rig &rig) {
+  // A hub drops its own transmissions, so listen with a separate bridge.
+  static Rig *listener = nullptr;
+  const uint32_t now = g_millis;
+  if (listener == nullptr)
+    listener = new Rig(/*with_receiver=*/true, FOREIGN_CODE);  // NOLINT: lives for the whole run
+  g_millis = now + 2000;  // outside the repeat-burst window of the previous frame
+  listener->hub.on_receive(remote_base::RemoteReceiveData(as_received(rig.tx.last_data.get_data())));
+  const std::string &state = listener->detected.last_state;
+  const size_t first = state.find(' ');
+  const size_t second = state.find(' ', first + 1);
+  return state.substr(first + 1, second - first - 1);
+}
+
+/// invert_direction swaps the physical commands behind HA's open and close and
+/// the meaning of the remote's Up and Down; stop is untouched.
+static void test_invert_direction_swaps_commands() {
+  printf("Invert direction: commands\n");
+
+  Rig normal;
+  normal.cover.open();
+  check(transmitted_command(normal) == "UP", "normal: HA open sends UP");
+  normal.cover.close();
+  check(transmitted_command(normal) == "DOWN", "normal: HA close sends DOWN");
+
+  Rig rig;
+  rig.cover.set_invert_direction(true);
+  rig.cover.open();
+  check(transmitted_command(rig) == "DOWN", "inverted: HA open sends DOWN");
+  rig.cover.close();
+  check(transmitted_command(rig) == "UP", "inverted: HA close sends UP");
+  rig.cover.stop();
+  check(transmitted_command(rig) == "MY", "inverted: HA stop still sends MY");
+}
+
+static void test_invert_direction_mirrors_remote() {
+  printf("Invert direction: physical remote\n");
+
+  Rig rig;
+  rig.cover.set_invert_direction(true);
+  rig.cover.position = 0.5f;
+
+  rig.receive(REMOTE_CODE, somfy::RtsCommand::Up);
+  check(rig.cover.current_operation == cover::COVER_OPERATION_CLOSING, "inverted: remote UP shows as CLOSING");
+  rig.advance(2500);
+  check_close(rig.cover.position, 0.25f, 0.05f, "inverted: position runs towards closed");
+
+  rig.receive(REMOTE_CODE, somfy::RtsCommand::My);
+  check(rig.cover.current_operation == cover::COVER_OPERATION_IDLE, "inverted: remote MY still stops");
+
+  rig.receive(REMOTE_CODE, somfy::RtsCommand::Down);
+  check(rig.cover.current_operation == cover::COVER_OPERATION_OPENING, "inverted: remote DOWN shows as OPENING");
+}
+
+/// Toggling at runtime: the motor has not moved, so the entity's position
+/// mirrors; restoring a stored choice at boot leaves the position alone.
+static void test_invert_direction_runtime_toggle() {
+  printf("Invert direction: runtime toggle\n");
+
+  Rig rig;
+  rig.cover.position = 0.8f;
+  const int publishes = rig.cover.publish_count;
+  rig.cover.apply_invert_direction(true);
+  check(rig.cover.get_invert_direction(), "the cover is now inverted");
+  check_close(rig.cover.position, 0.2f, 0.001f, "the position is mirrored");
+  check(rig.cover.publish_count > publishes, "the new position is published");
+  rig.cover.apply_invert_direction(true);
+  check_close(rig.cover.position, 0.2f, 0.001f, "applying the same setting again changes nothing");
+  rig.cover.apply_invert_direction(false);
+  check_close(rig.cover.position, 0.8f, 0.001f, "toggling back restores the position");
+
+  // While a physical-remote animation runs.
+  rig.cover.position = 0.5f;
+  rig.receive(REMOTE_CODE, somfy::RtsCommand::Up);
+  rig.advance(1000);
+  check(rig.cover.rx_active(), "remote animation is running");
+  const int sent = rig.tx.transmit_count;
+  const float before = rig.cover.position;
+  rig.cover.apply_invert_direction(true);
+  check(!rig.cover.rx_active(), "toggling ends the remote animation");
+  check(rig.cover.current_operation == cover::COVER_OPERATION_IDLE, "entity reports IDLE");
+  check(rig.tx.transmit_count == sent, "nothing is transmitted for a remote-driven movement");
+  check_close(rig.cover.position, 1.0f - before, 0.001f, "position is mirrored from where the animation stood");
+  rig.advance(3000);
+  check_close(rig.cover.position, 1.0f - before, 0.001f, "position no longer moves");
+
+  // While a movement commanded from Home Assistant runs.
+  Rig moving;
+  moving.cover.position = 0.0f;
+  cover::CoverCall call;
+  call.set_position(1.0f);
+  moving.cover.control(call);
+  moving.advance(2000);
+  check(moving.cover.current_operation == cover::COVER_OPERATION_OPENING, "HA movement is running");
+  const int sent_before = moving.tx.transmit_count;
+  moving.cover.apply_invert_direction(true);
+  check(moving.cover.current_operation == cover::COVER_OPERATION_IDLE, "toggling stops the HA movement");
+  check(moving.tx.transmit_count == sent_before + 1 && transmitted_command(moving) == "MY",
+        "a stop is sent to the motor");
+
+  // Boot-time restore.
+  Rig boot;
+  boot.cover.position = 0.8f;
+  boot.cover.restore_invert_direction(true);
+  check(boot.cover.get_invert_direction(), "a stored choice is restored");
+  check_close(boot.cover.position, 0.8f, 0.001f, "restoring does not mirror the restored position");
+}
+
 int main() {
   printf("Somfy RTS host tests\n\n");
 
   test_tx_mandatory_rx_optional();
   printf("\n");
   test_setup_registers_cover_on_hub();
+  printf("\n");
+  test_own_transmissions_are_ignored();
   printf("\n");
   test_rx_frame_syncs_ha_state();
   printf("\n");
@@ -413,6 +558,12 @@ int main() {
   test_foreign_remote_reported_but_ignored();
   printf("\n");
   test_traits();
+  printf("\n");
+  test_invert_direction_swaps_commands();
+  printf("\n");
+  test_invert_direction_mirrors_remote();
+  printf("\n");
+  test_invert_direction_runtime_toggle();
   printf("\n");
   test_repeat_burst_collapses_but_new_press_gets_through();
   printf("\n");

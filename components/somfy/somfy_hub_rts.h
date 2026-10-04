@@ -83,6 +83,12 @@ class SomfyRtsHub : public Component, public remote_base::RemoteReceiverListener
   // Devices should filter by remote_code themselves.
   void register_rx_callback(RtsRxCallback callback) { this->rx_callbacks_.push_back(std::move(callback)); }
 
+  // RX: a device announces the remote code it transmits with. Frames carrying
+  // one of these codes are this hub's own transmissions, which the receiver
+  // picks up when it shares the radio with the transmitter; they are dropped
+  // instead of being reported as a detected remote.
+  void add_own_remote_code(uint32_t remote_code) { this->own_remote_codes_.push_back(remote_code); }
+
   bool on_receive(remote_base::RemoteReceiveData data) override;
 
  protected:
@@ -90,6 +96,7 @@ class SomfyRtsHub : public Component, public remote_base::RemoteReceiverListener
 
   remote_base::RemoteReceiverBase *remote_receiver_{nullptr};
   std::vector<RtsRxCallback> rx_callbacks_;
+  std::vector<uint32_t> own_remote_codes_;
 
   // Last frame accepted, used to collapse a remote's repeat burst.
   uint32_t rx_last_remote_{0};

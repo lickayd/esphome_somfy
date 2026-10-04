@@ -662,10 +662,10 @@ def test_dynamic_slots_own_their_nvs_identity_strings():
 def test_rx_stats_expose_raw_frequency_diagnostics_before_crc_validation():
     on_packet = _function(
         HUB_CPP,
-        "void SomfyIohcHub::on_packet",
+        "void SomfyIohcHub::on_radio_packet",
         "void SomfyIohcHub::handle_2w_packet_",
     )
-    assert "last_raw_frequency_offset_ = freq_offset" in on_packet
+    assert "last_raw_frequency_offset_ = meta.freq_offset" in on_packet
     assert "last_raw_rssi_ = rssi" in on_packet
     stats = _function(
         MANAGER_CPP,

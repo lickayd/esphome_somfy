@@ -1,0 +1,109 @@
+substitutions:
+  devicename: awning-iohc
+  devicelabel: Awning iohc
+
+packages:
+  common: !include packages/common.yaml
+
+external_components:
+  source: github://leonardpitzu/esphome_somfy@main
+  components: [somfy]
+  refresh: 600s
+
+logger:
+  level: DEBUG
+
+esphome:
+  comment: $devicelabel
+
+esp32:
+  variant: esp32s3
+
+web_server:
+  port: 80
+  log: false
+  local: true
+  version: 3
+
+spi:
+  clk_pin: GPIO04
+  mosi_pin: GPIO05
+  miso_pin: GPIO06
+
+# SX1276 configured for io-homecontrol 1W (868.95 MHz, 2-FSK). The somfy hub
+# checks these settings when the config is validated; bandwidth,
+# preamble_detect and the PA settings are free to tune.
+sx127x:
+  id: sx1276_radio
+  cs_pin: GPIO07
+  rst_pin: GPIO15
+  dio0_pin: GPIO16
+  frequency: 868.95MHz
+  modulation: FSK
+  bitrate: 38400
+  deviation: 19.2kHz
+  bandwidth: 125_0kHz
+  bitsync: true
+  packet_mode: true
+  crc_enable: false
+  # RX capture window in bytes.
+  payload_length: 60
+  sync_value: [0x57, 0xFD]
+  preamble_polarity: 0x55
+  # Transmit preamble in bytes; a Situo io sends 64 before each repeat.
+  preamble_size: 64
+  preamble_detect: 2
+  pa_pin: BOOST
+  pa_power: 17
+  rx_start: true
+
+somfy:
+  - id: iohc_radio
+    type: iohc
+    sx127x_id: sx1276_radio
+    # Send the first copy of each command behind a long preamble, as physical
+    # remotes do. Enable if the motor does not react without it.
+    # wake_preamble: 254ms
+
+button:
+  - platform: template
+    id: "program_terrace_awning"
+    name: "Prog Terrace Awning"
+    entity_category: config
+    disabled_by_default: true
+  - platform: template
+    id: my_terrace_awning
+    name: "Terrace Awning MY"
+
+text_sensor:
+  - platform: template
+    id: terrace_awning_detected_remote
+    name: "Terrace Awning Detected Remote"
+
+cover:
+  - platform: somfy
+    type: iohc
+    id: terrace_awning
+    name: "Terrace Awning"
+    device_class: awning
+    open_duration: 30s
+    close_duration: 30s
+    # On an awning the remote's Up retracts, while Home Assistant shows an open
+    # awning as extended.
+    invert_direction: true
+    my_position: 50%
+    my_button: my_terrace_awning
+    storage_key: KeyTerrAwning
+    initial_rolling_code: 1
+    remote_code: 0xAABBCC
+    prog_button: program_terrace_awning
+    somfy_id: iohc_radio
+    encryption_key: !secret terrace_awning_iohc_key
+    detected_remote: terrace_awning_detected_remote
+    # allowed_remotes:
+    #   - 0x123456
+
+switch:
+  - platform: somfy
+    cover_id: terrace_awning
+    name: "Terrace Awning Invert Direction"

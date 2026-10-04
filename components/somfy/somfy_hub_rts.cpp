@@ -53,6 +53,7 @@ void SomfyRtsHub::dump_config() {
   ESP_LOGCONFIG(TAG, "  Transmitter: %s", this->remote_transmitter_ != nullptr ? "configured" : "MISSING");
   ESP_LOGCONFIG(TAG, "  Receiver: %s", this->remote_receiver_ != nullptr ? "configured" : "not configured");
   ESP_LOGCONFIG(TAG, "  RX callbacks: %u", this->rx_callbacks_.size());
+  ESP_LOGCONFIG(TAG, "  Own remote codes ignored on RX: %u", this->own_remote_codes_.size());
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +394,13 @@ bool SomfyRtsHub::on_receive(remote_base::RemoteReceiveData data) {
   RtsDecodedFrame decoded;
   if (!this->decode_frame_(raw, decoded, dbg))
     return false;
+
+  for (const uint32_t own : this->own_remote_codes_) {
+    if (own == decoded.remote_code) {
+      ESP_LOGV(TAG, "RX ignored: own transmission from 0x%06" PRIX32, decoded.remote_code);
+      return true;
+    }
+  }
 
   if (this->rx_is_duplicate_(decoded.remote_code, decoded.rolling_code))
     return true;

@@ -1,0 +1,139 @@
+# ESPHome compile-test for two radios on one ESP32-S3: Somfy RTS on a CC1101
+# (433.42 MHz, remote_transmitter/remote_receiver) and io-homecontrol 1W on an
+# SX1276 (868.95 MHz, native sx127x), each on its own SPI bus.
+esphome:
+  name: test-somfy-rts-iohc-sx1276
+
+esp32:
+  variant: esp32s3
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+spi:
+  - id: spi_rts
+    interface: spi3
+    clk_pin: GPIO12
+    mosi_pin: GPIO11
+    miso_pin: GPIO13
+  - id: spi_iohc
+    interface: spi2
+    clk_pin: GPIO4
+    mosi_pin: GPIO5
+    miso_pin: GPIO6
+
+cc1101:
+  id: cc1101_rts
+  spi_id: spi_rts
+  cs_pin: GPIO10
+  frequency: 433.42MHz
+
+remote_transmitter:
+  id: rts_transmitter
+  pin: GPIO14
+  carrier_duty_percent: 100%
+  non_blocking: true
+  on_transmit:
+    then:
+      - cc1101.begin_tx: cc1101_rts
+  on_complete:
+    then:
+      - cc1101.begin_rx: cc1101_rts
+
+remote_receiver:
+  id: rts_receiver
+  pin: GPIO9
+
+sx127x:
+  id: sx1276_radio
+  spi_id: spi_iohc
+  cs_pin: GPIO7
+  rst_pin: GPIO15
+  dio0_pin: GPIO16
+  frequency: 868.95MHz
+  modulation: FSK
+  bitrate: 38400
+  deviation: 19.2kHz
+  bandwidth: 125_0kHz
+  bitsync: true
+  packet_mode: true
+  crc_enable: false
+  payload_length: 60
+  sync_value: [0x57, 0xFD]
+  preamble_polarity: 0x55
+  preamble_size: 64
+  preamble_detect: 2
+  pa_pin: BOOST
+  pa_power: 17
+  rx_start: true
+
+somfy:
+  - id: rts_hub
+    type: rts
+    remote_transmitter: rts_transmitter
+    remote_receiver: rts_receiver
+  - id: iohc_hub
+    type: iohc
+    sx127x_id: sx1276_radio
+    wake_preamble: 254ms
+
+button:
+  - platform: template
+    id: prog_rts
+    name: "Prog RTS"
+  - platform: template
+    id: prog_iohc
+    name: "Prog IOHC"
+
+text_sensor:
+  - platform: template
+    id: detected_rts
+    name: "Detected RTS Remote"
+  - platform: template
+    id: detected_iohc
+    name: "Detected IOHC Remote"
+
+cover:
+  - platform: somfy
+    type: rts
+    id: rts_cover
+    name: "Test RTS Cover"
+    invert_direction: true
+    open_duration: 30s
+    close_duration: 31s
+    storage_key: TestRts
+    remote_code: 0x123456
+    prog_button: prog_rts
+    somfy_id: rts_hub
+    detected_remote: detected_rts
+    allowed_remotes:
+      - 0xABCDEF
+  - platform: somfy
+    type: iohc
+    id: iohc_cover
+    name: "Test IOHC Cover"
+    invert_direction: true
+    open_duration: 29s
+    close_duration: 29s
+    storage_key: TestIohc
+    remote_code: 0x234567
+    prog_button: prog_iohc
+    somfy_id: iohc_hub
+    detected_remote: detected_iohc
+    allowed_remotes:
+      - 0x654321
+
+switch:
+  - platform: somfy
+    cover_id: rts_cover
+    name: "RTS Invert Direction"
+  - platform: somfy
+    cover_id: iohc_cover
+    name: "IOHC Invert Direction"

@@ -227,6 +227,8 @@ class SomfyIohcCover : public SomfyTimeBasedCover {
 
  protected:
   void control(const cover::CoverCall &call) override;
+  void stop_remote_animation_() override;
+  void on_invert_direction_changed_() override;
 
   // Hub reference (owns radio)
   SomfyIohcHub *hub_{nullptr};
