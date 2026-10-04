@@ -27,7 +27,7 @@ The hub handles all radio TX/RX and protocol framing. Device classes (covers tod
 
 - **ESP32** (any variant)
 - **For RTS:** CC1101 433 MHz module + antenna (via ESPHome `remote_transmitter` / `remote_receiver`)
-- **For iohc:** CC1101 868 MHz module + antenna (via ESPHome native `cc1101` component in packet mode)
+- **For iohc:** CC1101 868 MHz module + antenna (via ESPHome native `cc1101` component in packet mode), or an SX1276/SX1278-family 868 MHz module (via ESPHome native `sx127x` component, 1W only)
 
 ## Installation
 
@@ -255,6 +255,81 @@ diagnostic material.
 ---
 
 <details>
+<summary><h2>iohc configuration on an SX1276 (1W only)</h2></summary>
+
+The io-homecontrol hub can use an SX1276-family transceiver through ESPHome's
+native `sx127x` component instead of a CC1101. Replace `cc1101_id` with
+`sx127x_id`; covers are configured exactly as in the CC1101 section above.
+
+```yaml
+spi:
+  clk_pin: GPIO4
+  mosi_pin: GPIO5
+  miso_pin: GPIO6
+
+sx127x:
+  id: sx1276_radio
+  cs_pin: GPIO7
+  rst_pin: GPIO15
+  dio0_pin: GPIO16          # required: packet received / packet sent
+  frequency: 868.95MHz
+  modulation: FSK
+  bitrate: 38400
+  deviation: 19.2kHz
+  bandwidth: 125_0kHz
+  bitsync: true
+  packet_mode: true
+  crc_enable: false
+  payload_length: 60        # RX capture window in bytes
+  sync_value: [0x57, 0xFD]
+  preamble_polarity: 0x55
+  preamble_size: 64         # transmit preamble in bytes, at least 24
+  preamble_detect: 2
+  pa_pin: BOOST
+  pa_power: 17
+  rx_start: true
+
+somfy:
+  - id: iohc_radio
+    type: iohc
+    sx127x_id: sx1276_radio
+    # wake_preamble: 254ms    # optional, see below
+```
+
+The settings marked by the config check (`modulation`, `bitrate`, `deviation`,
+`sync_value`, `preamble_polarity`, `packet_mode`, `bitsync`, `crc_enable`,
+`rx_start`, a fixed `payload_length`, `preamble_size` of at least 24 and a
+`dio0_pin`) are required; a wrong value is rejected when the config is
+validated. `bandwidth`, `preamble_detect` and the PA settings are yours to tune.
+
+**Preamble length.** A physical Situo io remote, measured with an SDR, sends
+64 bytes of preamble before each repeat and about 254 ms (roughly 1220 bytes)
+before the first copy of a burst, the one that carries the wake bit.
+`preamble_size: 64` matches the repeats. The optional hub setting
+`wake_preamble` (up to 2 s) makes the first copy use a long preamble as well,
+for receivers that need it to wake up; it costs one more radio
+reconfiguration per command and blocks for the length of the preamble.
+
+Differences from the CC1101 backend:
+
+- **1W only.** `mode: 2w` covers are rejected on an `sx127x_id` hub: the native
+  component resets the chip on every reconfiguration (about 18 ms on an
+  ESP32-S3), far longer than the 2.7 ms 2W channel dwell.
+- **No signal strength.** The native component reports no RSSI in FSK mode, so
+  RSSI reads 0 in logs and diagnostics.
+- **Each transmit burst** costs one radio reconfiguration before and one after
+  it, during which the hub does not listen.
+
+Status: reception of a physical Situo io remote and the transmitted signal
+(deviation, bit rate, framing, checked with an SDR) are verified on an
+ESP32-S3 with an SX1276. Control of a motor through this backend is not yet
+confirmed.
+
+</details>
+
+---
+
+<details>
 <summary><h2>iohc GUI commissioning (multiple independent shutters)</h2></summary>
 
 `somfy_iohc_manager` turns one ESP32 + CC1101 into a reusable bridge with up
@@ -460,7 +535,10 @@ cover:
 | `type` | yes | `rts` or `iohc` |
 | `remote_transmitter` | RTS only | ESPHome `remote_transmitter` ID |
 | `remote_receiver` | no | ESPHome `remote_receiver` ID (enables RX decode) |
-| `cc1101_id` | iohc only | ESPHome `cc1101` component ID |
+| `cc1101_id` | iohc, one of | ESPHome `cc1101` component ID |
+| `sx127x_id` | iohc, one of | ESPHome `sx127x` component ID (1W only) |
+| `frequency_1w` | no | 1W carrier, default `868.95MHz`; overrides the radio block's frequency |
+| `wake_preamble` | no | `sx127x_id` only: preamble time before the first copy of a 1W burst (e.g. `254ms`); default is the block's `preamble_size` |
 
 ### Cover (`platform: somfy`)
 

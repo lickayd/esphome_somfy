@@ -134,6 +134,8 @@ void SomfyIohcHub::configure_radio_2w(uint8_t channel) {
 }
 
 void SomfyIohcHub::start_2w_listen() {
+  if (!this->radio_->supports_2w())
+    return;
   this->current_2w_channel_ = 0;
   this->configure_radio_2w(0);
   this->radio_->begin_rx();
@@ -159,6 +161,11 @@ void SomfyIohcHub::send_2w_command(uint32_t src_node, uint32_t dest_node, uint8_
       this->session_.state != Session2WState::COMPLETE &&
       this->session_.state != Session2WState::FAILED) {
     ESP_LOGW(TAG, "2W session busy, cannot start new command");
+    if (callback) callback(false, nullptr);
+    return;
+  }
+  if (!this->radio_->supports_2w()) {
+    ESP_LOGE(TAG, "2W command rejected: this radio does not support 2W");
     if (callback) callback(false, nullptr);
     return;
   }

@@ -4,6 +4,7 @@
 
 #ifdef USE_SOMFY_IOHC
 
+#include "esphome/core/component.h"
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -57,8 +58,18 @@ class IohcRadioListener {
 /// passed to the transmit methods always include their CRC.
 class IohcRadio {
  public:
+  // The hub configures the chip from its own setup(), so it has to be set up
+  // after the ESPHome component that owns the chip. Return a priority below
+  // that component's when it sets up later than the default.
+  virtual float hub_setup_priority() const { return setup_priority::DATA; }
+
   // Called once from the hub's setup(), after the first configure_1w().
   virtual void setup_radio(IohcRadioListener *listener) = 0;
+
+  // Whether the radio can retune fast enough for 2W channel hopping. The hub
+  // refuses 2W commands on a radio that cannot, and then never calls
+  // configure_2w() or transmit_2w().
+  virtual bool supports_2w() const { return true; }
 
   // Apply the complete 1W receive configuration on `frequency` (Hz). Called
   // before and after every 1W transmit, so it must restore anything a transmit

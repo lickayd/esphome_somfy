@@ -1,0 +1,80 @@
+# Minimal ESPHome config to compile-test the Somfy io-homecontrol cover in 1W
+# mode on an SX1276 (ESPHome native sx127x component) instead of a CC1101.
+esphome:
+  name: test-somfy-iohc-1w-sx1276
+
+esp32:
+  variant: esp32s3
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: ../../components
+
+spi:
+  clk_pin: GPIO4
+  mosi_pin: GPIO5
+  miso_pin: GPIO6
+
+sx127x:
+  id: sx1276_radio
+  cs_pin: GPIO7
+  rst_pin: GPIO15
+  dio0_pin: GPIO16
+  frequency: 868.95MHz
+  modulation: FSK
+  bitrate: 38400
+  deviation: 19.2kHz
+  bandwidth: 125_0kHz
+  bitsync: true
+  packet_mode: true
+  crc_enable: false
+  payload_length: 60
+  sync_value: [0x57, 0xFD]
+  preamble_polarity: 0x55
+  preamble_size: 32
+  preamble_detect: 2
+  pa_pin: BOOST
+  pa_power: 17
+  rx_start: true
+
+somfy:
+  - id: iohc_hub
+    type: iohc
+    sx127x_id: sx1276_radio
+
+button:
+  - platform: template
+    id: prog_button
+    name: "Prog Button"
+  - platform: template
+    id: my_button
+    name: "MY Button"
+
+text_sensor:
+  - platform: template
+    id: detected_remote
+    name: "Detected Remote"
+
+cover:
+  - platform: somfy
+    type: iohc
+    name: "Test IOHC 1W Cover"
+    open_duration: 30s
+    close_duration: 30s
+    my_position: 42%
+    my_button: my_button
+    storage_key: Iohc1W
+    initial_rolling_code: 0x0020
+    repeat_command_count: 6
+    remote_code: 0x123456
+    prog_button: prog_button
+    somfy_id: iohc_hub
+    allowed_remotes:
+      - 0x654321
+    detected_remote: detected_remote

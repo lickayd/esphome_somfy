@@ -106,6 +106,10 @@ class SomfyIohcHub : public Component,
   void setup() override;
   void loop() override;
   void dump_config() override;
+  // setup() drives the chip, so it must run after the chip's own component.
+  float get_setup_priority() const override {
+    return this->radio_ != nullptr ? this->radio_->hub_setup_priority() : setup_priority::DATA;
+  }
 
   // Configuration
   void set_radio(IohcRadio *radio) { this->radio_ = radio; }

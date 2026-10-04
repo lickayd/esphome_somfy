@@ -12,6 +12,7 @@ from esphome.const import (
 
 from . import (
     CONF_REMOTE_RECEIVER,
+    CONF_SX127X_ID,
     DOMAIN,
     SomfyIohcHub,
     SomfyRtsHub,
@@ -127,6 +128,20 @@ def validate_rts_config(config, hub_config=None):
     )
 
 
+def validate_iohc_radio(config, hub_config):
+    """Reject 2W covers on a hub whose radio cannot hop channels fast enough."""
+    if (
+        hub_config is not None
+        and CONF_SX127X_ID in hub_config
+        and config.get(CONF_IOHC_MODE, IOHC_MODE_1W) == IOHC_MODE_2W
+    ):
+        raise cv.Invalid(
+            f"'{CONF_IOHC_MODE}: {IOHC_MODE_2W}' is not available on a hub that uses "
+            f"'{CONF_SX127X_ID}': the SX127x backend supports 1W only"
+        )
+    return config
+
+
 def find_hub_config(full_config, hub_id):
     """Return the somfy hub config with the given id, or None if absent."""
     hubs = full_config.get(DOMAIN) or []
@@ -185,7 +200,7 @@ IOHC_COVER_SCHEMA = cv.All(
             cv.Optional(CONF_MY_BUTTON): cv.use_id(button.Button),
             # RX state-sync: learn physical io-homecontrol remote IDs and keep
             # HA in sync when a motor is driven by an original remote. The iohc
-            # hub always listens (CC1101 sits in RX), so unlike RTS no separate
+            # hub always listens (its radio sits in RX), so unlike RTS no separate
             # receiver is required.
             cv.Optional(CONF_ALLOWED_REMOTES, default=[]): cv.ensure_list(
                 cv.hex_uint32_t
@@ -214,9 +229,11 @@ def _final_validate(config):
     # run once the whole config is known. Without it a cover configured with
     # allowed_remotes against a receiver-less hub fails later with a cryptic C++
     # compile error instead of a config message.
+    hub_config = find_hub_config(fv.full_config.get(), config[CONF_SOMFY_ID])
     if config[CONF_TYPE] == TYPE_RTS:
-        hub_config = find_hub_config(fv.full_config.get(), config[CONF_SOMFY_ID])
         validate_rts_config(config, hub_config)
+    else:
+        validate_iohc_radio(config, hub_config)
 
     # A rolling-code key identifies one monotonically increasing stream. Two
     # independently configured cover entities must never accidentally reuse it.

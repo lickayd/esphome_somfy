@@ -4,6 +4,7 @@
 #   2. RX-sync animator, the dead-reckoning used to follow a physical remote
 #   3. RTS cover behaviour, incl. the physical-remote -> HA state sync
 #   4. io-homecontrol hub against a recording CC1101, compared with a golden trace
+#   5. io-homecontrol hub on an SX127x, fed with FIFO captures of a real remote
 #
 # No ESPHome toolchain needed; ./stubs provides the minimal ESPHome surface.
 # These cover what `esphome compile` cannot: a firmware build succeeding proves
@@ -70,6 +71,15 @@ run_suite "io-homecontrol hub (CC1101)" "$TMP/iohc_hub" \
   test_iohc_hub.cpp \
   ../../components/somfy/somfy_hub_iohc.cpp \
   ../../components/somfy/somfy_radio_cc1101.cpp \
+  ../../components/somfy/iohc_protocol.cpp \
+  $CRYPTO_LIBS
+
+run_suite "io-homecontrol hub (SX127x)" "$TMP/iohc_sx127x" \
+  -I stubs "${COMPONENT_WARNINGS[@]}" \
+  -DUSE_SOMFY_IOHC -DUSE_SOMFY_IOHC_SX127X \
+  test_iohc_sx127x.cpp \
+  ../../components/somfy/somfy_hub_iohc.cpp \
+  ../../components/somfy/somfy_radio_sx127x.cpp \
   ../../components/somfy/iohc_protocol.cpp \
   $CRYPTO_LIBS
 
