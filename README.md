@@ -260,6 +260,7 @@ diagnostic material.
 The io-homecontrol hub can use an SX1276-family transceiver through ESPHome's
 native `sx127x` component instead of a CC1101. Replace `cc1101_id` with
 `sx127x_id`; covers are configured exactly as in the CC1101 section above.
+A complete example is in [`somfy_iohc_sx1276.yaml`](somfy_iohc_sx1276.yaml).
 
 ```yaml
 spi:
