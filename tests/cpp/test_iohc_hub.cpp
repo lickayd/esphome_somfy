@@ -14,6 +14,7 @@
 
 #include "../../components/somfy/iohc_protocol.h"
 #include "../../components/somfy/somfy_hub_iohc.h"
+#include "../../components/somfy/somfy_radio_cc1101.h"
 
 #include "esphome/components/cc1101/cc1101.h"
 #include "esphome/core/log.h"
@@ -124,8 +125,9 @@ static void counters(const SomfyIohcHub &hub) {
 static void run_script() {
   cc1101::CC1101Component radio;
   radio.sink = trace;
+  IohcRadioCC1101 backend(&radio);
   SomfyIohcHub hub;
-  hub.set_cc1101(&radio);
+  hub.set_radio(&backend);
   hub.set_frequency_1w(868.925e6f);  // a calibrated, non-nominal frequency
   hub.register_rx_callback([](const IohcDecodedPacket &pkt) {
     char line[256];

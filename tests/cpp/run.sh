@@ -66,9 +66,10 @@ run_suite "RTS cover" "$TMP/rts_cover" \
 
 run_suite "io-homecontrol hub (CC1101)" "$TMP/iohc_hub" \
   -I stubs "${COMPONENT_WARNINGS[@]}" \
-  -DUSE_SOMFY_IOHC \
+  -DUSE_SOMFY_IOHC -DUSE_SOMFY_IOHC_CC1101 \
   test_iohc_hub.cpp \
   ../../components/somfy/somfy_hub_iohc.cpp \
+  ../../components/somfy/somfy_radio_cc1101.cpp \
   ../../components/somfy/iohc_protocol.cpp \
   $CRYPTO_LIBS
 

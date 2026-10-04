@@ -13,6 +13,8 @@ MANAGER_H = (
 ).read_text()
 HUB_CPP = (ROOT / "components/somfy/somfy_hub_iohc.cpp").read_text()
 HUB_H = (ROOT / "components/somfy/somfy_hub_iohc.h").read_text()
+RADIO_CPP = (ROOT / "components/somfy/somfy_radio_cc1101.cpp").read_text()
+RADIO_H = (ROOT / "components/somfy/somfy_radio_cc1101.h").read_text()
 SOMFY_PY = (ROOT / "components/somfy/__init__.py").read_text()
 
 
@@ -133,19 +135,19 @@ def test_calibrated_1w_frequency_survives_every_transmit_cycle():
 
 
 def test_1w_rx_uses_hardware_verified_full_capture_window():
-    assert "RX_FIFO_WINDOW_1W = 60" in HUB_H
-    assert "RX_FIFO_WINDOW_2W = 60" in HUB_H
-    one_way = HUB_CPP.split("void SomfyIohcHub::configure_radio_1w()", 1)[1]
-    one_way = one_way.split("void SomfyIohcHub::configure_radio_2w", 1)[0]
+    assert "RX_FIFO_WINDOW_1W = 60" in RADIO_H
+    assert "RX_FIFO_WINDOW_2W = 60" in RADIO_H
+    one_way = RADIO_CPP.split("void IohcRadioCC1101::configure_1w(", 1)[1]
+    one_way = one_way.split("void IohcRadioCC1101::configure_2w(", 1)[0]
     assert "RX_FIFO_WINDOW_1W" in one_way
-    two_way = HUB_CPP.split("void SomfyIohcHub::configure_radio_2w", 1)[1]
-    two_way = two_way.split("void SomfyIohcHub::start_2w_listen", 1)[0]
+    two_way = RADIO_CPP.split("void IohcRadioCC1101::configure_2w(", 1)[1]
+    two_way = two_way.split("void IohcRadioCC1101::begin_rx", 1)[0]
     assert "RX_FIFO_WINDOW_2W" in two_way
 
 
 def test_1w_rx_uses_relative_carrier_detection_for_weak_remotes():
-    one_way = HUB_CPP.split("void SomfyIohcHub::configure_radio_1w()", 1)[1]
-    one_way = one_way.split("void SomfyIohcHub::configure_radio_2w", 1)[0]
+    one_way = RADIO_CPP.split("void IohcRadioCC1101::configure_1w(", 1)[1]
+    one_way = one_way.split("void IohcRadioCC1101::configure_2w(", 1)[0]
     assert "set_magn_target(cc1101::MagnTarget::MAGN_TARGET_33DB)" in one_way
     assert "set_max_lna_gain(cc1101::MaxLnaGain::MAX_LNA_GAIN_DEFAULT)" in one_way
     assert "set_max_dvga_gain(cc1101::MaxDvgaGain::MAX_DVGA_GAIN_DEFAULT)" in one_way
@@ -159,7 +161,7 @@ def test_1w_rx_uses_relative_carrier_detection_for_weak_remotes():
 def test_1w_tx_restores_receive_specific_radio_settings():
     transmit = HUB_CPP.split("void SomfyIohcHub::transmit_packet", 1)[1]
     transmit = transmit.split("void SomfyIohcHub::begin_rx", 1)[0]
-    assert "this->configure_radio_1w();\n  this->cc1101_->begin_rx();" in transmit
+    assert "this->configure_radio_1w();\n  this->radio_->begin_rx();" in transmit
 
 
 def test_manager_exposes_receive_pipeline_counters_on_demand():
